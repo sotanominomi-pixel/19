@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>N Clock — Full (Alarms)</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#000000">
+
+<style>
+:root{
+  --bg:#000;
+  --text:#fff;
+  --muted:#888;
+  --accent:#0a84ff;
+  --alarm-text-light:#000; /* alarm time text in light mode */
+  --alarm-text-dark:#fff;  /* alarm time text in dark mode */
+}
+
+/* automatic adapt */
+@media (prefers-color-scheme: light) {
+  :root{
+    --bg:#fff;
+    --text:#000;
+    --muted:#666;
+  }
+}
+@media (prefers-color-scheme: dark) {
+  :root{
+    --bg:#000;
+    --text:#fff;
+    --muted:#888;
+  }
+}
+
+html,body{
+  height:100%;
+  margin:0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  background:var(--bg);
+  color:var(--text);
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+
+/* layout */
+.wrap{
+  min-height:100vh;
+  box-sizing:border-box;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding:28px 18px 110px; /* bottom space for nav */
+  gap:18px;
+}
+
+/* display (iOS-like slimmer digits) */
+.display {
+  font-weight:600;
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+  font-size: calc(34px + 10vw);
+  line-height:1;
+  letter-spacing:1px;
+  margin-top:10px;
+  text-align:center;
+}
+
+/* slider area */
+.slider-box { width: min(760px, 96%); margin-top:6px; }
+.label-row{ display:flex; justify-content:space-between; align-items:center; color:var(--muted); font-size:15px; margin-bottom:8px; }
+
+/* thick slider */
+input[type="range"]{
+  -webkit-appearance:none;
+  width:100%; height:16px; border-radius:10px; background:#e6e6e6;
+}
+input[type="range"]::-webkit-slider-thumb{
+  -webkit-appearance:none;
+  width:42px;height:42px;border-radius:50%;
+  background:var(--text); border:4px solid var(--bg);
+  box-shadow:0 8px 20px rgba(0,0,0,0.18);
+  margin-top:-13px;
+}
+
+/* tabs (bottom-ish) */
+.tabs{
+  position:fixed;
+  bottom:20px;
+  left:50%;
+  transform:translateX(-50%);
+  display:flex;
+  gap:10px;
+  background: rgba(127,127,127,0.06);
+  padding:6px;
+  border-radius:14px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.18);
+}
+.tab-btn{
+  padding:12px 22px;
+  border-radius:10px;
+  border:none;
+  cursor:pointer;
+  font-weight:600;
+  background:transparent;
+  color:var(--text);
+}
+.tab-btn.active{ background:var(--text); color:var(--bg); box-shadow:0 8px 24px rgba(0,0,0,0.18); }
+
+/* stopwatch controls */
+.controls{ display:flex; gap:16px; justify-content:center; margin-top:6px; }
+.btn-circle{ width:84px; height:84px; border-radius:50%; display:grid; place-items:center; font-weight:700; border:none; cursor:pointer; }
+.btn-start{ background:#34c759; color:#000; }
+.btn-stop{ background:#ff3b30; color:#fff; }
+.btn-small{ width:64px; height:64px; border-radius:12px; background:transparent; color:var(--text); border:1px solid rgba(255,255,255,0.06); }
+
+/* alarm area (shown only in alarm mode) */
+.alarm-area { width: min(760px, 96%); margin-top:6px; display:flex; flex-direction:column; gap:12px; }
+.add-row { display:flex; gap:10px; align-items:center; }
+.time-picker { font-size:20px; padding:10px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.06); background:transparent; color:var(--text); }
+.add-btn { padding:10px 14px; border-radius:10px; border:none; background:var(--text); color:var(--bg); font-weight:700; cursor:pointer; }
+
+/* alarms list */
+.alarms-list { display:flex; flex-direction:column; gap:8px; max-height:40vh; overflow:auto; padding-top:6px; }
+.alarm-row { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px; border-radius:10px; background: rgba(255,255,255,0.02); }
+.alarm-time {
+  font-size:20px;
+  /* show black in light mode, white in dark mode */
+  color: var(--alarm-text-light);
+}
+@media (prefers-color-scheme: dark){
+  .alarm-time{ color: var(--alarm-text-dark); }
+}
+.alarm-meta { color:var(--muted); font-size:13px; }
+.alarm-actions { display:flex; gap:8px; align-items:center; }
+
+/* small delete button */
+.del-btn { background:transparent; border:none; color:var(--muted); cursor:pointer; padding:8px; border-radius:8px; }
+
+.footer-note{ color:var(--muted); font-size:12px; margin-top:8px; text-align:center; }
+
+/* responsive */
+@media (max-width:420px){
+  .display{ font-size: calc(28px + 14vw); }
+  .btn-circle{ width:72px;height:72px;}
+}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="display" class="display">00:00:00</div>
+
+    <!-- Slider (visible only in clock & stopwatch modes) -->
+    <div id="sliderBox" class="slider-box">
+      <div class="label-row">
+        <div>1日の長さ</div>
+        <div id="labelHours">24 時間</div>
+      </div>
+      <input id="sliderHours" type="range" min="12" max="48" step="1" value="24">
+    </div>
+
+    <!-- Stopwatch area -->
+    <div id="stopwatchArea" style="display:none;">
+      <div class="controls">
+        <button id="startBtn" class="btn-circle btn-start">Start</button>
+        <button id="lapBtn" class="btn-small" disabled>Lap</button>
+        <button id="resetBtn" class="btn-small" disabled>Reset</button>
+      </div>
+      <div id="laps" class="alarms-list" style="max-height:18vh;"></div>
+    </div>
+
+    <!-- Alarm area -->
+    <div id="alarmArea" class="alarm-area" style="display:none;">
+      <div class="add-row">
+        <input id="newAlarmTime" class="time-picker" type="time" value="07:00">
+        <button id="addAlarmBtn" class="add-btn">追加</button>
+      </div>
+      <div id="alarmsList" class="alarms-list"></div>
+      <div class="footer-note">アラームは表示している仮想時計（画面上の時計）に合わせて発動します。</div>
+    </div>
+
+    <div class="footer-note">設定は自動保存されます。</div>
+  </div>
+
+  <!-- bottom tabs -->
+  <div class="tabs" role="tablist" aria-label="mode">
+    <button id="tabClock" class="tab-btn active">時計</button>
+    <button id="tabStopwatch" class="tab-btn">ストップウォッチ</button>
+    <button id="tabAlarm" class="tab-btn">アラーム</button>
+  </div>
+
+<script>
+/* ========= state & restore ========= */
+const display = document.getElementById('display');
+const slider = document.getElementById('sliderHours');
+const labelHours = document.getElementById('labelHours');
+
+const sliderBox = document.getElementById('sliderBox');
+const stopwatchArea = document.getElementById('stopwatchArea');
+const alarmArea = document.getElementById('alarmArea');
+
+const tabClock = document.getElementById('tabClock');
+const tabStopwatch = document.getElementById('tabStopwatch');
+const tabAlarm = document.getElementById('tabAlarm');
+
+const startBtn = document.getElementById('startBtn');
+const lapBtn = document.getElementById('lapBtn');
+const resetBtn = document.getElementById('resetBtn');
+const lapsDiv = document.getElementById('laps');
+
+const newAlarmTime = document.getElementById('newAlarmTime');
+const addAlarmBtn = document.getElementById('addAlarmBtn');
+const alarmsList = document.getElementById('alarmsList');
+
+let customHours = Number(localStorage.getItem('nclock_hours')) || 24;
+slider.value = customHours;
+labelHours.textContent = `${customHours} 時間`;
+
+let mode = localStorage.getItem('nclock_mode') || 'clock'; // 'clock' | 'stopwatch' | 'alarm'
+
+let elapsedMs = Number(localStorage.getItem('nclock_elapsed')) || 0;
+let running = false;
+let lastPerf = performance.now();
+let laps = JSON.parse(localStorage.getItem('nclock_laps') || '[]');
+
+let alarms = JSON.parse(localStorage.getItem('nclock_alarms') || '[]'); 
+// alarms: array of { id: string, time: "HH:MM", enabled: true/false, note?:string }
+
+/* audio (chime) setup */
+let audioCtx = null;
+function playChime(){
+  try{
+    if(!audioCtx){ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    const ctx = audioCtx;
+    // simple 3-note melody (iPhone-like)
+    const tones = [880, 660, 988]; // frequencies
+    let now = ctx.currentTime;
+    tones.forEach((f,i)=>{
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = f;
+      g.gain.value = 0;
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start(now + i * 0.18);
+      g.gain.linearRampToValueAtTime(0.12, now + i*0.18 + 0.01);
+      g.gain.linearRampToValueAtTime(0.0, now + i*0.18 + 0.16);
+      o.stop(now + i*0.18 + 0.18);
+    });
+  }catch(e){
+    // ignore
+  }
+}
+
+/* helper */
+function saveAll(){
+  localStorage.setItem('nclock_hours', String(customHours));
+  localStorage.setItem('nclock_mode', mode);
+  localStorage.setItem('nclock_elapsed', String(elapsedMs));
+  localStorage.setItem('nclock_laps', JSON.stringify(laps));
+  localStorage.setItem('nclock_alarms', JSON.stringify(alarms));
+}
+
+/* UI actions */
+function showMode(m){
+  mode = m;
+  tabClock.classList.toggle('active', m==='clock');
+  tabStopwatch.classList.toggle('active', m==='stopwatch');
+  tabAlarm.classList.toggle('active', m==='alarm');
+
+  // only show slider in clock and stopwatch
+  sliderBox.style.display = (m==='clock' || m==='stopwatch') ? 'block' : 'none';
+  stopwatchArea.style.display = (m==='stopwatch') ? 'block' : 'none';
+  alarmArea.style.display = (m==='alarm') ? 'block' : 'none';
+
+  // when alarm mode, hide the time display per request
+  display.style.display = (m==='alarm') ? 'none' : 'block';
+
+  saveAll();
+}
+showMode(mode);
+
+/* slider */
+slider.addEventListener('input', (e)=>{
+  customHours = Number(e.target.value);
+  labelHours.textContent = `${customHours} 時間`;
+  saveAll();
+});
+
+/* tabs */
+tabClock.addEventListener('click', ()=> showMode('clock'));
+tabStopwatch.addEventListener('click', ()=> showMode('stopwatch'));
+tabAlarm.addEventListener('click', ()=> showMode('alarm'));
+
+/* stopwatch controls */
+startBtn.addEventListener('click', ()=>{
+  if(!running){
+    running = true;
+    lastPerf = performance.now();
+    startBtn.textContent = 'Stop';
+    startBtn.classList.remove('btn-start'); startBtn.classList.add('btn-stop');
+    lapBtn.disabled = false; resetBtn.disabled = true;
+  } else {
+    running = false;
+    startBtn.textContent = 'Start';
+    startBtn.classList.add('btn-start'); startBtn.classList.remove('btn-stop');
+    lapBtn.disabled = true; resetBtn.disabled = false;
+    saveAll();
+  }
+});
+lapBtn.addEventListener('click', ()=>{ laps.unshift(display.textContent); if(laps.length>200) laps.pop(); renderLaps(); saveAll(); });
+resetBtn.addEventListener('click', ()=>{ elapsedMs = 0; laps = []; renderLaps(); resetBtn.disabled = true; saveAll(); });
+
+function renderLaps(){ 
+  if(!laps.length){ lapsDiv.innerHTML = '<div style="color:var(--muted); padding:6px;">ラップなし</div>'; return; }
+  lapsDiv.innerHTML = laps.map((t,i)=>`<div style="padding:6px 0; color:var(--muted)">${i+1}. ${t}</div>`).join('');
+}
+renderLaps();
+
+/* alarms UI */
+function renderAlarms(){
+  alarmsList.innerHTML = '';
+  if(alarms.length===0){
+    alarmsList.innerHTML = '<div style="color:var(--muted); padding:8px;">アラームがありません</div>';
+    return;
+  }
+  alarms.forEach(a=>{
+    const row = document.createElement('div');
+    row.className = 'alarm-row';
+    const left = document.createElement('div');
+    left.style.display='flex'; left.style.flexDirection='column';
+    const timeEl = document.createElement('div');
+    timeEl.className = 'alarm-time';
+    timeEl.textContent = a.time;
+    const meta = document.createElement('div');
+    meta.className = 'alarm-meta';
+    meta.textContent = a.enabled ? 'ON' : 'OFF';
+    left.appendChild(timeEl); left.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'alarm-actions';
+    const toggle = document.createElement('input');
+    toggle.type='checkbox'; toggle.checked = !!a.enabled;
+    toggle.addEventListener('change', ()=>{
+      a.enabled = toggle.checked; saveAll(); renderAlarms();
+    });
+    const del = document.createElement('button');
+    del.className = 'del-btn';
+    del.title = '削除';
+    del.innerHTML = '🗑';
+    del.addEventListener('click', ()=>{
+      alarms = alarms.filter(x=>x.id!==a.id); saveAll(); renderAlarms();
+    });
+    actions.appendChild(toggle); actions.appendChild(del);
+
+    row.appendChild(left); row.appendChild(actions);
+    alarmsList.appendChild(row);
+  });
+}
+renderAlarms();
+
+/* add alarm */
+addAlarmBtn.addEventListener('click', ()=>{
+  const val = newAlarmTime.value;
+  if(!val) return;
+  const id = 'alarm_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+  alarms.push({ id, time: val, enabled: true });
+  saveAll();
+  renderAlarms();
+});
+
+/* alarm checker uses virtual clock (displayed clock) */
+let lastAlarmCheck = -1;
+function checkAlarms(h,m){
+  // only when seconds==0, but call from tick ensures we're running each frame — use minute boundaries
+  // trigger alarms whose enabled==true and match h,m
+  alarms.forEach(a=>{
+    if(!a.enabled) return;
+    const [ah,am] = a.time.split(':').map(n=>Number(n));
+    if(ah===h && am===m){
+      // prevent multiple triggers in same minute — use lastAlarmCheck
+      const key = `${a.id}_${h}_${m}`;
+      if(sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key,'1');
+      // play sound + show alert
+      playChime();
+      // small visual (notification-like)
+      try{ if('Notification' in window && Notification.permission==='granted'){ new Notification('アラーム', { body: `${a.time} に設定したアラームです` }); } }catch(e){}
+      // also show in-page alert/banner
+      setTimeout(()=>{ alert(`⏰ アラーム: ${a.time}`); }, 50);
+    }
+  });
+}
+
+/* request notification permission (best-effort) */
+if('Notification' in window && Notification.permission !== 'granted'){
+  Notification.requestPermission().catch(()=>{});
+}
+
+/* animation / tick — uses virtual clock scaling */
+let lastNow = performance.now();
+function tick(now){
+  const dt = now - lastNow;
+  lastNow = now;
+
+  // if stopwatch running -> add scaled ms to elapsedMs
+  if(running){
+    elapsedMs += dt * (24 / customHours);
+  }
+
+  // compute virtual seconds of day based on real Date + scale
+  const real = new Date();
+  const realSeconds = real.getHours()*3600 + real.getMinutes()*60 + real.getSeconds() + real.getMilliseconds()/1000;
+  const virtualSeconds = realSeconds * (24 / customHours);
+  const vh = Math.floor(virtualSeconds/3600) % 24;
+  const vm = Math.floor(virtualSeconds/60) % 60;
+  const vs = Math.floor(virtualSeconds) % 60;
+
+  if(mode === 'clock'){
+    display.style.display = 'block';
+    display.textContent = `${String(vh).padStart(2,'0')}:${String(vm).padStart(2,'0')}:${String(vs).padStart(2,'0')}`;
+    // check alarms at exact second 0 (so once per minute)
+    if(vs === 0){
+      checkAlarms(vh, vm);
+    }
+  } else if(mode === 'stopwatch'){
+    // stopwatch displays elapsedMs (convert to hh:mm:ss)
+    const totalSec = Math.floor(elapsedMs / 1000);
+    const hh = Math.floor(totalSec / 3600);
+    const mm = Math.floor(totalSec / 60) % 60;
+    const ss = totalSec % 60;
+    display.style.display = 'block';
+    display.textContent = `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+  } else if(mode === 'alarm'){
+    // hide main time (already hidden in showMode), nothing to update on display
+    display.style.display = 'none';
+  }
+
+  // save periodically (every few seconds)
+  // we persist on actions and periodically too
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+/* restore periodic save */
+setInterval(saveAll, 2000);
+
+/* service worker pwa */
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>
